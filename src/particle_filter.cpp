@@ -14,7 +14,6 @@
 #include <sstream>
 #include <string>
 #include <iterator>
-#include "Eigen/Dense"
 
 #include "particle_filter.h"
 
@@ -36,18 +35,18 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	normal_distribution<double> dist_y(y, std_y);
 	normal_distribution<double> dist_theta(theta, std_theta);
 
-	pf.num_particles = num_particles;
-	for (int i = 0; i<pf.num_particles, i++){
+	this->num_particles = num_particles;
+	for (int i = 0; i < this->num_particles; i++){
 		//append to the particles vector
 		Particle particle;
 		particle.x = dist_x(gen);
 		particle.y = dist_y(gen);
 		particle.theta = dist_theta(gen);
 		particle.weight = 1;
-		pf.particles.push_back(particle)
+		this->particles.push_back(particle);
 	}
 
-	pf.is_initialized = true;
+	this->is_initialized = true;
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
@@ -55,59 +54,67 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	// NOTE: When adding noise you may find std::normal_distribution and std::default_random_engine useful.
 	//  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
-	for(int i=0; i<pf.num_particles; i++)
+	for(int i=0; i<this->num_particles; i++)
 	{
 		double std_x = std_pos[0];
 		double std_y = std_pos[1];
 		double std_theta = std_pos[2];
 
-		default_random_engine gen;
-		normal_distribution<double> dist_x(x, std_x);
-		normal_distribution<double> dist_y(y, std_y);
-		normal_distribution<double> dist_theta(theta, std_theta);
 
-		pf.particles[i].x = pf.particles[i].x  + dist_x(gen) +(velocity/yaw_rate)*(sin(pf.particles[i].theta+yaw_rate*delta_t)-sin(pf.particles[i].theta));
-		pf.particles[i].y = pf.particles[i].y  + dist_y(gen) + (velocity/yaw_rate)*(cos(pf.particles[i].theta)-cos(pf.particles[i].theta+yaw_rate*delta_t));
-		pf.particles[i].theta = pf.particles[i].theta+ dist_theta(gen) + yaw_rate*delta_t;
+		this->particles[i].x = this->particles[i].x  +(velocity/yaw_rate)*(sin(this->particles[i].theta+yaw_rate*delta_t)-sin(this->particles[i].theta));
+		this->particles[i].y = this->particles[i].y  + (velocity/yaw_rate)*(cos(this->particles[i].theta)-cos(this->particles[i].theta+yaw_rate*delta_t));
+		this->particles[i].theta = this->particles[i].theta + yaw_rate*delta_t;
+
+		//add noise
+		default_random_engine gen;
+		normal_distribution<double> dist_x(this->particles[i].x, std_x);
+		normal_distribution<double> dist_y(this->particles[i].y, std_y);
+		normal_distribution<double> dist_theta(this->particles[i].theta, std_theta);
+
+		this->particles[i].x+=dist_x(gen);
+		this->particles[i].x+=dist_y(gen);
+		this->particles[i].x+=dist_theta(gen);
 	}
 
 }
 
 void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::vector<LandmarkObs>& observations) {
-	// TODO: Find the predicted measurement that is closest to each observed measurement and assign the 
+	//Find the predicted measurement that is closest to each observed measurement and assign the 
 	//   observed measurement to this particular landmark.
 	// NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
 	//   implement this method and use it as a helper during the updateWeights phase.
 
 	
 	//use euclidian distance to find the nearest neigbor
-	double euclidian_dist;
-	double prev_euclidian_dist=0;
-	double smallest_dist;
-	double x1;
-	double x2;
-	double y1;
-	double y2;
+	double euclidian_dist,smallest_dist;
+	double x1, x2, y1, y2;
+	int id;
+
 	for (int i=0; i<observations.size(); i++){
 		x1=observations[i].x;
-		//x2=(data from map);
-		y1=observations[i].x;
-		//y2=(data from map);
+		y1=observations[i].y;
+		smallest_dist = numeric_limits<double>::max();
 
-		euclidian_dist=(sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1)));
-		if (euclidian_dist <  prev_euclidian_dist){
-			smallest_dist= euclidian_dist;
+		for (int j =0; i<predicted.size(); i++){
+			x2=predicted[j].x;
+			y2=predicted[j].y;
+			euclidian_dist=dist(x1,y1,x2,y2);
+
+			if (euclidian_dist <  smallest_dist){
+				smallest_dist= euclidian_dist;
+				id=predicted[j].id;
+			}
 		}
-		prev_euclidian_dist=euclidian_dist;
+
+		observations[i].id=id; 
 	}
-	//select nearest neighbor
 
 }
 
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
 		const std::vector<LandmarkObs> &observations, const Map &map_landmarks) {
-	// TODO: Update the weights of each particle using a mult-variate Gaussian distribution. You can read
+	// Update the weights of each particle using a mult-variate Gaussian distribution. You can read
 	//   more about this distribution here: https://en.wikipedia.org/wiki/Multivariate_normal_distribution
 	// NOTE: The observations are given in the VEHICLE'S coordinate system. Your particles are located
 	//   according to the MAP'S coordinate system. You will need to transform between the two systems.
@@ -120,47 +127,65 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
 	//transform the observation into map space
 
-	double theta;
-	double x_t; 
-	double y_t;
-	double cummulative_prod;
-	double gauss_norm;
-	double exponent;
-	double weight;
+	double x_t, y_t, theta; 
+	double gauss_norm, exponent, weight;
 	double sig_x=std_landmark[0];
 	double sig_y=std_landmark[1];
-
 	LandmarkObs cur_obs; 
 	std::vector<LandmarkObs> transformed_observations;
-	std::vector<LandmarkObs> predicted;
 
-	for(int i= 0; i<pf.num_particles; i++)
+	std::vector<LandmarkObs> map_landmarks_as_LandMarkObs;
+	for (int i=0; i<map_landmarks.landmark_list.size(); i++){
+		double x = map_landmarks.landmark_list[i].x_f;
+		double y = map_landmarks.landmark_list[i].y_f;
+		double id = map_landmarks.landmark_list[i].id_i;
+		LandmarkObs lm;
+		lm.x=x;
+		lm.y=y;
+		lm.id=id;
+		map_landmarks_as_LandMarkObs.push_back(lm);
+	}
+
+	/**
+	loop through the particles vector and for each particle, transform the measurements into its coordinate 
+	system, then associate each transformed measurement to a map landmark and then compute the likelihood of that measurement 
+	actually corresponding to the landmark. Make a cummulative product for every observations.
+	*/
+	for(int i= 0; i<this->num_particles; i++)
 	{	
-		x_t=pf.particles[i].x;
-		y_t=pf.particles[i].y;
-		theta=pf.particles[i].theta;
+		x_t=this->particles[i].x;
+		y_t=this->particles[i].y;
+		theta=this->particles[i].theta;
 
-		while (predicted.size() != 0) predicted.clear();
+		//clear the transformed_observations vector
 		while (transformed_observations.size() != 0) transformed_observations.clear();
 		for (int j =0; i<observations.size(); j++)
 		{	
-			//get the current observation in map coordinates
-			cur_obs.x = observations[j].x * cos(theta) - y * sin(theta) + x_t;
-			cur_obs.y = observations[j].x; * sin(theta) - y * cos(theta) + y_t;
-			transformed_observations.push_back(cur_obs)
+			//get the current observation in map coordinates and save it to the vector
+			cur_obs.x = observations[j].x * cos(theta) - observations[j].y * sin(theta) + x_t;
+			cur_obs.y = observations[j].x * sin(theta) - observations[j].y * cos(theta) + y_t;
+			transformed_observations.push_back(cur_obs);
 		}
-		//get the predictions
 
-		/**watch out the way that the arguments are passed, see function definition : one must be dereferenced before passing*/
-		pf.dataAssociation(predicted, transformed_observations);
+		//match the observations to map landmarks, save results in transformed_observations[i].id
+		this->dataAssociation(map_landmarks_as_LandMarkObs, transformed_observations);
 
-		for (int j =0; i<observations.size(); j++){
-			//calculate the likelihood of this observation
+		//loop through the obersvations
+		for (int j =0; i<transformed_observations.size(); j++){
+			//get map landmark corresponding to each observation
+			int id= transformed_observations[j].id;
+			LandmarkObs ml;
+			for (int k=0; k<map_landmarks_as_LandMarkObs.size(); k++){
+				if (id == map_landmarks_as_LandMarkObs[k].id){
+					ml=map_landmarks_as_LandMarkObs[k];
+				}
+			}
+			//calculate the likelihood of this observation being the associated landmark, using a multivariate normal distribution
 			gauss_norm= (1/(2 * M_PI * sig_x * sig_y));
-			exponent= ((observations[j].x - predicted[j].x)*(observations[j].x - predicted[j].x))/(2 * sig_x*sig_x) + ((observations[j].y - predicted[j].y)*(observations[j].y - predicted[j].y))/(2 * sig_y*sig_y);
+			exponent= ((observations[j].x - ml.x)*(observations[j].x - ml.x))/(2 * sig_x*sig_x) + ((observations[j].y - ml.y)*(observations[j].y - ml.y))/(2 * sig_y*sig_y);
 			weight= gauss_norm * exp(-exponent);
-			//cummulative product of all the ovservations
-			pf.particles[i].weight*= weight; 
+			//cummulative product of all the observations
+			this->particles[i].weight*= weight; 
 		}
 	}
 }
