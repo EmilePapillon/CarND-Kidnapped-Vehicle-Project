@@ -28,7 +28,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
 
-	int num_particles = 1000;
+	int num_particles = 101;
 	double std_x = std[0];
 	double std_y = std[1];
 	double std_theta = std[2];
@@ -70,9 +70,9 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 
 	for(int i=0; i<this->num_particles; i++)
 	{
-		this->particles[i].x += (velocity/yaw_rate)*(sin(this->particles[i].theta+yaw_rate*delta_t)-sin(this->particles[i].theta));
-		this->particles[i].y += (velocity/yaw_rate)*(cos(this->particles[i].theta)-cos(this->particles[i].theta+yaw_rate*delta_t));
-		this->particles[i].theta += yaw_rate*delta_t;
+		this->particles[i].x += (velocity/yaw_rate)*(sin(this->particles[i].theta + yaw_rate*delta_t) - sin(this->particles[i].theta));
+		this->particles[i].y += (velocity/yaw_rate)*(cos(this->particles[i].theta) - cos(this->particles[i].theta + yaw_rate*delta_t));
+		this->particles[i].theta += yaw_rate * delta_t;
 
 		//add noise
 		this->particles[i].x+=dist_x(gen);
@@ -136,23 +136,10 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//transform the observation into map space
 
 	double x_t, y_t, theta; 
-	double gauss_norm, exponent, weight;
 	double sig_x=std_landmark[0];
 	double sig_y=std_landmark[1];
 	LandmarkObs cur_obs; 
 	std::vector<LandmarkObs> transformed_observations;
-
-	std::vector<LandmarkObs> map_landmarks_as_LandMarkObs;
-	for (int i=0; i<map_landmarks.landmark_list.size(); i++){
-		double x = map_landmarks.landmark_list[i].x_f;
-		double y = map_landmarks.landmark_list[i].y_f;
-		double id = map_landmarks.landmark_list[i].id_i;
-		LandmarkObs lm;
-		lm.x=x;
-		lm.y=y;
-		lm.id=id;
-		map_landmarks_as_LandMarkObs.push_back(lm);
-	}
 
 	/**
 	loop through the particles vector and for each particle, transform the measurements into its coordinate 
@@ -161,9 +148,24 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	*/
 	for(int i= 0; i<this->num_particles; i++)
 	{	
-		x_t=this->particles[i].x;
-		y_t=this->particles[i].y;
-		theta=this->particles[i].theta;
+		x_t=particles[i].x;
+		y_t=particles[i].y;
+		theta=particles[i].theta;
+
+		std::vector<LandmarkObs> map_landmarks_as_LandMarkObs;
+		for (int j=0; j<map_landmarks.landmark_list.size(); j++){
+			double x = map_landmarks.landmark_list[j].x_f;
+			double y = map_landmarks.landmark_list[j].y_f;
+			double id = map_landmarks.landmark_list[j].id_i;
+			LandmarkObs lm;
+			lm.x=x;
+			lm.y=y;
+			lm.id=id;
+			if (fabs(lm.x - x_t) <= sensor_range && fabs(lm.y - y_t) <= sensor_range){
+				map_landmarks_as_LandMarkObs.push_back(lm);
+			}
+		}
+
 
 		//clear the transformed_observations vector
 		while (transformed_observations.size() != 0) transformed_observations.clear();
@@ -176,9 +178,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 		}
 
 		//match the observations to map landmarks, save results in transformed_observations[i].id
-		this->dataAssociation(map_landmarks_as_LandMarkObs, transformed_observations);
+		dataAssociation(map_landmarks_as_LandMarkObs, transformed_observations);
 
-		this->particles[i].weight = 1.0; //is it necessary to reinitialize the weights ?
+		particles[i].weight = 1.0; //is it necessary to reinitialize the weights ?
 		
 		//loop through the obersvations
 		for (int j =0; j<transformed_observations.size(); j++){
@@ -191,11 +193,13 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 				}
 			}
 			//calculate the likelihood of this observation being the associated landmark, using a multivariate normal distribution
-			gauss_norm= (1/(2 * M_PI * sig_x * sig_y));
-			exponent= ((observations[j].x - ml.x)*(observations[j].x - ml.x))/(2 * sig_x*sig_x) + ((observations[j].y - ml.y)*(observations[j].y - ml.y))/(2 * sig_y*sig_y);
-			weight= gauss_norm * exp(-exponent);
+			double gauss_norm= (1/(2 * M_PI * sig_x * sig_y));
+			double exponent= ((transformed_observations[j].x - ml.x)*(transformed_observations[j].x - ml.x))/(2 * sig_x*sig_x) + ((transformed_observations[j].y - ml.y)*(transformed_observations[j].y - ml.y))/(2 * sig_y*sig_y);
+			double weight_update = gauss_norm * exp(-exponent);
+
+
 			//cummulative product of all the observations
-			this->particles[i].weight*= weight; 
+			particles[i].weight*= weight_update; 
 		}
 	}
 }
@@ -226,12 +230,10 @@ void ParticleFilter::resample() {
 	uniform_real_distribution<double> uniform_double_dist(0.0, 2.0*max_w);
 
 	//resampling wheel for N particles with probability 'weights'
-	double current_particle_weight;
 	for(int i= 0; i < N; i++){
 	 	beta+= uniform_double_dist(gen);
-	 	current_particle_weight = weights[index];
-	 	while(beta > current_particle_weight){
-	 		beta -= current_particle_weight;
+	 	while(beta > weights[index]){
+	 		beta -= weights[index];
 	 		index = (index + 1) % N; 
 	 	}
 	 	p.push_back(this->particles[index]);
