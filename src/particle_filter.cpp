@@ -70,14 +70,20 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 
 	for(int i=0; i<this->num_particles; i++)
 	{
-		this->particles[i].x += (velocity/yaw_rate)*(sin(this->particles[i].theta + yaw_rate*delta_t) - sin(this->particles[i].theta));
-		this->particles[i].y += (velocity/yaw_rate)*(cos(this->particles[i].theta) - cos(this->particles[i].theta + yaw_rate*delta_t));
-		this->particles[i].theta += yaw_rate * delta_t;
 
+	    if (fabs(yaw_rate) < 0.00001) {  
+	      particles[i].x += velocity * delta_t * cos(particles[i].theta);
+	      particles[i].y += velocity * delta_t * sin(particles[i].theta);
+	    } 
+	    else {
+	      particles[i].x += velocity / yaw_rate * (sin(particles[i].theta + yaw_rate*delta_t) - sin(particles[i].theta));
+	      particles[i].y += velocity / yaw_rate * (cos(particles[i].theta) - cos(particles[i].theta + yaw_rate*delta_t));
+	      particles[i].theta += yaw_rate * delta_t;
+	    }
 		//add noise
-		this->particles[i].x+=dist_x(gen);
-		this->particles[i].y+=dist_y(gen);
-		this->particles[i].theta+=dist_theta(gen);
+		particles[i].x+=dist_x(gen);
+		particles[i].y+=dist_y(gen);
+		particles[i].theta+=dist_theta(gen);
 		//cout << "particle" << i  <<  "was just predicted"  << endl;
 	}
 	//cout << "finished prediction step" << endl;
